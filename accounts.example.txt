@@ -1,0 +1,2 @@
+# Format: ct0:auth_token
+your_ct0_token_here:your_auth_token_here

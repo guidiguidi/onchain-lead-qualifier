@@ -1,0 +1,6 @@
+requests>=2.31.0
+python-dotenv>=1.0.0
+camoufox>=0.5.8
+playwright>=1.40.0
+PySocks>=1.7.1
+selenium>=4.15.0

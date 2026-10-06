@@ -1,0 +1,17 @@
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+accounts.txt
+accounts.db
+!accounts.example.txt
+reply_audit.*
+tweets.txt
+texts.txt
+.env
+.env.*
+!.env.example
+build/
+dist/
+*.spec
+.DS_Store
