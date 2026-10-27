@@ -205,7 +205,7 @@ class SolscanAPI:
             self.is_available = False
 
     def _check_availability(self) -> bool:
-        """JSON-RPC probe: getSlot, then getLatestBlockhash (разные провайдеры отдают slot по-разному)."""
+        """JSON-RPC probe: getSlot, then getLatestBlockhash (different RPC providers handle slot queries differently)."""
         probes: List[tuple] = [
             ("getSlot", []),
             ("getLatestBlockhash", [{"commitment": "finalized"}]),

@@ -127,7 +127,7 @@ def process_targets_with_account(account: Account, targets: List[str], dry_run: 
 
 def main() -> None:
     logger.panel(
-        "Логи",
+        "Logger Config",
         {
             "TWITTER_LOG_LEVEL": os.getenv("TWITTER_LOG_LEVEL", "max"),
             "verbose": logger.verbose_enabled,

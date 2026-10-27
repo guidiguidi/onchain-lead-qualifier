@@ -39,47 +39,52 @@ def _env_truthy(name: str, default: bool = False) -> bool:
 
 def format_reply_error(exc: BaseException) -> str:
     """
-    Коротко по-русски + одна строка от драйвера (без полного stacktrace в логе).
+    Concise summary + one line from driver (avoids verbose stacktrace dump).
     """
     raw = str(exc).strip()
     low = raw.lower()
 
     if "element click intercepted" in low:
         hint = (
-            "Selenium: клик перехвачен другим слоем страницы.\n"
-            "Частая причина на X: на экране два поля «Post text» с одинаковым data-testid — "
-            "клик попал не в то (модалка ответа перекрыта или продублирована). "
-            "Скрипт должен целиться в поле внутри окна ответа (role=dialog)."
+        hint = "Browser: click intercepted by another DOM overlay.
+"
+            "Common on X: multiple «Post text» fields present with identical data-testid — "
+            "click hit wrong element (dialog overlaid or duplicated). "
+            "Targeting input inside active dialog modal (role=dialog)."
         )
     elif "stale element" in low or "staleelementreference" in low.replace(" ", ""):
         hint = (
-            "Selenium: элемент исчез со страницы до завершения действия (DOM обновился). "
-            "Повторите отправку или увеличьте паузы."
+            "Browser: element detached before action completed (DOM mutation). "
+            "Retry operation or increase stabilization pause."
         )
     elif "timeout" in low or isinstance(exc, TimeoutException):
         hint = (
-            "Selenium: превышено время ожидания элемента (страница не успела отрисоваться, "
-            "другой layout или нет доступа к твиту)."
+            "Browser: element wait timeout exceeded (render delay, "
+            "layout shift, or restricted tweet access)."
         )
     elif "session not created" in low or "only supports chrome version" in low:
         hint = (
-            "Selenium: версия ChromeDriver не совпадает с установленным Chrome.\n"
-            "Скрипт подставляет major из `Google Chrome --version`; при сбое задайте UC_CHROME_VERSION_MAIN=146 "
-            "(или ваш major) и перезапустите."
+        hint = "Browser: ChromeDriver version mismatch with installed Chrome.
+"
+        hint += "Major version extracted from Chrome; override via UC_CHROME_VERSION_MAIN if needed.
+"
+            "if autodetection fails."
         )
     elif "invalid session" in low or "no such window" in low or "web view not found" in low:
         hint = (
-            "Selenium: сессия браузера закрыта или окно пропало.\n"
-            "На macOS чаще всего помогает UC_USE_SUBPROCESS=0 (уже по умолчанию для Darwin) "
-            "или обновление Chrome; убедитесь, что окно автоматизации не закрываете вручную."
+        hint = "Browser: session terminated or window unexpectedly closed.
+"
+            "On macOS, UC_USE_SUBPROCESS=0 (default for Darwin) resolves window detachment; "
+            "ensure automation viewport is not manually interrupted."
         )
     else:
-        hint = "Selenium / браузер:\n"
+        hint = "Browser automation warning:
+"
 
     one_line = raw.replace("\n", " ")
     if len(one_line) > 280:
         one_line = one_line[:277] + "..."
-    return f"{hint}\nДеталь: {one_line}"
+    return f"{hint}\nDetail: {one_line}"
 
 
 def _scroll_center(driver: webdriver.Chrome, el) -> None:
@@ -90,7 +95,7 @@ def _scroll_center(driver: webdriver.Chrome, el) -> None:
 
 
 def _scroll_clear_sticky_header(driver: webdriver.Chrome, el, offset_px: int = 140) -> None:
-    """Скролл к элементу + сдвиг вверх, чтобы Reply не оказался под фиксированной шапкой X."""
+    """Scroll to element + upward offset to clear sticky X header navbar."""
     driver.execute_script(
         "arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});",
         el,
@@ -101,8 +106,8 @@ def _scroll_clear_sticky_header(driver: webdriver.Chrome, el, offset_px: int = 1
 
 def _robust_click(driver: webdriver.Chrome, el, pause: float = 0.35) -> None:
     """
-    Цепочка кликов: обычный → ActionChains (центр элемента) → JS click → synthetic MouseEvent.
-    Нужна, когда span/оверлей перехватывает клик (element click intercepted).
+    Fallback click cascade: standard click -> ActionChains -> JS click -> synthetic MouseEvent.
+    Used when overlay/pseudo-elements intercept DOM click events.
     """
     _scroll_clear_sticky_header(driver, el)
     time.sleep(pause)
@@ -140,7 +145,7 @@ def _robust_click(driver: webdriver.Chrome, el, pause: float = 0.35) -> None:
 
 
 def _safe_click(driver: webdriver.Chrome, el, pause: float = 0.45) -> None:
-    """Обёртка: тот же robust-клик (шапка X, перехват клика)."""
+    """Robust click dispatcher wrapper with scroll compensation."""
     _robust_click(driver, el, pause=pause)
 
 
@@ -152,12 +157,12 @@ def _focus_contenteditable(driver: webdriver.Chrome, el) -> None:
 
 
 def _find_reply_button_on_tweet_page(driver: webdriver.Chrome, wait: WebDriverWait):
-    """Reply на фокальном твите: ждём кликабельность, не только presence."""
+    """Focal tweet reply button: wait for full clickability, not just DOM presence."""
     wait.until(
         EC.presence_of_element_located((By.CSS_SELECTOR, 'div[data-testid="primaryColumn"]'))
     )
     time.sleep(0.45)
-    # На странице статуса первый article — обычно сам твит; кликабельность снижает ложные перехваты.
+    # Primary status article corresponds to focal tweet; clickability check prevents race conditions
     primary = 'div[data-testid="primaryColumn"]'
     try:
         return wait.until(
@@ -192,7 +197,7 @@ def _visible_textareas_in_dialog(driver: webdriver.Chrome) -> List:
 
 def _find_reply_composer_textarea(driver: webdriver.Chrome, wait: WebDriverWait):
     """
-    На X часто несколько Draft.js с data-testid=tweetTextarea_0; берём поле внутри модалки ответа.
+    # Scopes Draft.js editor strictly within role=dialog to avoid duplicates
     """
     def _dialog_textarea_ready(drv: webdriver.Chrome):
         vis = _visible_textareas_in_dialog(drv)
@@ -208,12 +213,12 @@ def _find_reply_composer_textarea(driver: webdriver.Chrome, wait: WebDriverWait)
     if visible:
         return visible[-1]
     raise TimeoutException(
-        "Не найдено видимое поле ввода (tweetTextarea_0). Модалка ответа могла не открыться."
+        "Visible input area not found (tweetTextarea_0). Reply modal may have failed to open."
     )
 
 
 def _find_dialog_tweet_button(driver: webdriver.Chrome, wait: WebDriverWait):
-    """Кнопка Reply в той же модалке, не другая Tweet на странице."""
+    """Reply submit button scoped inside active dialog modal."""
 
     def _ready(drv: webdriver.Chrome):
         for btn in reversed(
@@ -246,9 +251,9 @@ def _find_dialog_tweet_button(driver: webdriver.Chrome, wait: WebDriverWait):
 
 def use_selenium_reply() -> bool:
     """
-    По умолчанию ответы через браузер (Selenium).
-    Отключить: USE_SELENIUM_REPLY=0 (или false / no / off).
-    При сбое Selenium см. selenium_api_fallback_enabled() / SELENIUM_FALLBACK_API.
+    Browser automation mode active by default.
+    Disable with USE_SELENIUM_REPLY=0 (or false / no / off).
+    On browser error, see selenium_api_fallback_enabled() / SELENIUM_FALLBACK_API.
     """
     v = os.getenv("USE_SELENIUM_REPLY", "").strip().lower()
     if v in ("0", "false", "no", "off"):
@@ -260,8 +265,8 @@ def use_selenium_reply() -> bool:
 
 def selenium_api_fallback_enabled() -> bool:
     """
-    Если Selenium упал — повторить отправку через GraphQL CreateTweet (Twitter.reply_to_tweet).
-    Отключить: SELENIUM_FALLBACK_API=0
+    Fall back to private GraphQL CreateTweet endpoint if browser interaction fails.
+    Disable fallback: SELENIUM_FALLBACK_API=0
     """
     v = os.getenv("SELENIUM_FALLBACK_API", "1").strip().lower()
     return v not in ("0", "false", "no", "off")
@@ -280,10 +285,10 @@ def _parse_cookie_string(cookie: str) -> Dict[str, str]:
 
 def _headless_enabled() -> bool:
     """
-    По умолчанию браузер видимый (окно на экране).
+    Visible viewport mode enabled by default.
     Headless: SELENIUM_HEADLESS=1.
-    Чтобы принудительно показать окно даже при SELENIUM_HEADLESS=1 в .env:
-    SELENIUM_VISIBLE=1 (или SHOW_SELENIUM_BROWSER=1).
+    To enforce visible viewport even with SELENIUM_HEADLESS=1 in .env:
+    SELENIUM_VISIBLE=1 (or SHOW_SELENIUM_BROWSER=1).
     """
     vis = os.getenv("SELENIUM_VISIBLE", os.getenv("SHOW_SELENIUM_BROWSER", "")).strip().lower()
     if vis in ("1", "true", "yes", "on"):
@@ -307,7 +312,7 @@ def _close_delay_seconds(headless: bool) -> float:
 
 
 def _build_driver(proxy: Optional[str] = None) -> tuple[webdriver.Chrome, bool]:
-    """Chrome через undetected-chromedriver (патч драйвера, меньше следов автоматизации)."""
+    """Spawns undetected-chromedriver (patched binary to prevent fingerprint leak)."""
     t_drv = _t0()
     plain = os.getenv("USE_UNDETECTED_CHROMEDRIVER", "").strip().lower() in (
         "0",
@@ -318,7 +323,7 @@ def _build_driver(proxy: Optional[str] = None) -> tuple[webdriver.Chrome, bool]:
     logger.debug(f"Selenium driver: USE_UNDETECTED_CHROMEDRIVER → {'plain' if plain else 'undetected'}")
     if plain:
         d, h = _build_driver_plain_selenium(proxy)
-        logger.timing("Chrome (plain Selenium) старт", time.perf_counter() - t_drv)
+        logger.timing("Chrome (standard) startup", time.perf_counter() - t_drv)
         return d, h
 
     options = uc.ChromeOptions()
@@ -329,9 +334,9 @@ def _build_driver(proxy: Optional[str] = None) -> tuple[webdriver.Chrome, bool]:
 
     headless = _headless_enabled()
     if headless:
-        logger.info("Selenium: режим headless (окна не будет). Чтобы видеть браузер: уберите SELENIUM_HEADLESS из .env или задайте SELENIUM_VISIBLE=1")
+        logger.info("Browser: headless mode active. To show window set SELENIUM_VISIBLE=1")
     else:
-        logger.success("Selenium: видимое окно Chrome (можно следить за действиями)")
+        logger.success("Browser: visible Chrome viewport launched")
     if not headless:
         options.add_argument("--start-maximized")
 
@@ -348,7 +353,7 @@ def _build_driver(proxy: Optional[str] = None) -> tuple[webdriver.Chrome, bool]:
             "headless": headless,
             "use_subprocess": use_sub,
             "version_main": vm if vm is not None else "auto",
-            "proxy": "да" if proxy else "нет",
+            "proxy": "yes" if proxy else "no",
         },
     )
     driver = uc.Chrome(
@@ -357,16 +362,16 @@ def _build_driver(proxy: Optional[str] = None) -> tuple[webdriver.Chrome, bool]:
         use_subprocess=use_sub,
         version_main=vm,
     )
-    logger.timing("Chrome (uc) старт", time.perf_counter() - t_drv)
+    logger.timing("Chrome (uc) startup", time.perf_counter() - t_drv)
     try:
-        logger.trace(f"current_url (после старта): {driver.current_url!r}")
+        logger.trace(f"current_url (post-launch): {driver.current_url!r}")
     except Exception as e:
-        logger.trace(f"current_url недоступен: {e}")
+        logger.trace(f"current_url unavailable: {e}")
     return driver, headless
 
 
 def _uc_use_subprocess() -> bool:
-    """На macOS use_subprocess=True часто даёт «target window already closed»."""
+    """On macOS, use_subprocess=True frequently causes premature window closing."""
     v = os.getenv("UC_USE_SUBPROCESS", "").strip().lower()
     if v in ("1", "true", "yes", "on"):
         return True
@@ -377,8 +382,8 @@ def _uc_use_subprocess() -> bool:
 
 def _uc_version_main() -> Optional[int]:
     """
-    Major-версия Chrome для патча драйвера (иначе uc может скачать 147 при установленном 146).
-    Переопределение: UC_CHROME_VERSION_MAIN=146
+    # Chrome major version override if autodetection fails (UC_CHROME_VERSION_MAIN)
+    Override: UC_CHROME_VERSION_MAIN=146
     """
     raw = os.getenv("UC_CHROME_VERSION_MAIN", "").strip()
     if raw.isdigit():
@@ -408,12 +413,12 @@ def _uc_version_main() -> Optional[int]:
 def _build_driver_plain_selenium(proxy: Optional[str] = None) -> tuple[webdriver.Chrome, bool]:
     headless = _headless_enabled()
     if headless:
-        logger.info("Selenium (plain): headless. Для окна: SELENIUM_VISIBLE=1 или отключите SELENIUM_HEADLESS")
+        logger.info("Browser (plain): headless mode active. For visible window set SELENIUM_VISIBLE=1")
     else:
-        logger.success("Selenium (plain): видимое окно")
+        logger.success("Browser (standard): visible viewport initialized")
     logger.panel(
-        "Chrome / обычный Selenium",
-        {"headless": headless, "proxy": "да" if proxy else "нет"},
+        "Chrome / Standard Driver",
+        {"headless": headless, "proxy": "yes" if proxy else "no"},
     )
     options = webdriver.ChromeOptions()
     options.add_argument("--lang=en-US")
@@ -449,9 +454,9 @@ def _x_showing_error_page(driver: webdriver.Chrome) -> bool:
 
 def _suppress_x_tweet_chrome_banners(driver: webdriver.Chrome) -> int:
     """
-    Плашка «There's a new version of this post» / «See the latest post» часто
-    перекрывает нижнюю панель твита (Reply). Скрываем блок в primaryColumn.
-    Отключить: SELENIUM_SUPPRESS_BANNERS=0
+    Floating banner «There's a new version of this post» often
+    overlaps action bar. Suppressing floating banner in primaryColumn.
+    Disable suppression: SELENIUM_SUPPRESS_BANNERS=0
     """
     if os.getenv("SELENIUM_SUPPRESS_BANNERS", "1").strip().lower() in (
         "0",
@@ -466,8 +471,9 @@ def _suppress_x_tweet_chrome_banners(driver: webdriver.Chrome) -> int:
             const needles = [
               'see the latest post',
               'new version of this post',
-              'есть новая версия',
-              'посмотреть новую версию',
+              'there is a new version',
+'see new version',
+              
             ];
             const col = document.querySelector('[data-testid="primaryColumn"]');
             if (!col) return 0;
@@ -507,55 +513,55 @@ def _reply_to_tweet_once(
         raise ValueError("Cookie must include ct0 and auth_token")
 
     session_t0 = _t0()
-    logger.section("Selenium · ответ на твит", subtitle=f"id={tweet_id}")
+    logger.section("Browser · Tweet Reply Dispatch", subtitle=f"id={tweet_id}")
     logger.panel(
-        "Запрос",
+        "Dispatch Request",
         {
             "tweet_id": tweet_id,
             "timeout_sec": timeout_seconds,
-            "proxy": "да" if proxy else "нет",
+            "proxy": "yes" if proxy else "no",
             "USE_SELENIUM_REPLY": use_selenium_reply(),
             "SELENIUM_HEADLESS": _headless_enabled(),
-            "попыток (макс.)": _selenium_reply_attempts(),
-            "длина текста": len(reply_text),
+            "max_attempts": _selenium_reply_attempts(),
+            "text_length": len(reply_text),
         },
     )
     preview = reply_text.replace("\n", " ")[:100]
-    logger.trace(f"текст (превью): {preview!r}{'…' if len(reply_text) > 100 else ''}")
-    logger.debug(f"ct0 present={bool(ct0)} auth_token present={bool(auth_token)} (значения не логируются)")
+    logger.trace(f"text (preview): {preview!r}{'…' if len(reply_text) > 100 else ''}")
+    logger.debug(f"ct0 present={bool(ct0)} auth_token present={bool(auth_token)} (values redacted)")
 
     driver, headless = _build_driver(proxy=proxy)
     wait = WebDriverWait(driver, timeout_seconds)
     try:
         driver.set_page_load_timeout(max(60, timeout_seconds + 30))
-        logger.step(1, 7, "Загрузка x.com (контекст куки)")
+        logger.step(1, 7, "Loading x.com (cookie domain priming)")
         t = _t0()
         driver.get("https://x.com/")
         time.sleep(1.0)
         logger.timing("GET x.com/", time.perf_counter() - t)
-        logger.trace(f"url после x.com: {driver.current_url!r}")
+        logger.trace(f"URL post priming: {driver.current_url!r}")
 
         driver.add_cookie({"name": "ct0", "value": ct0, "domain": ".x.com", "path": "/"})
         driver.add_cookie({"name": "auth_token", "value": auth_token, "domain": ".x.com", "path": "/"})
-        logger.success("Куки ct0 + auth_token записаны в сессию")
+        logger.success("Session cookies (ct0 + auth_token) injected successfully")
 
         tweet_url = f"https://x.com/i/web/status/{tweet_id}"
-        logger.step(2, 7, f"Открытие твита")
+        logger.step(2, 7, f"Navigating to focal status URL")
         logger.info(f"URL: {tweet_url}")
         t = _t0()
         driver.get(tweet_url)
         time.sleep(0.8)
-        logger.timing("GET статуса", time.perf_counter() - t)
+        logger.timing("Status GET response", time.perf_counter() - t)
         logger.trace(f"url: {driver.current_url!r} title: {driver.title!r}")
 
         if _x_showing_error_page(driver):
-            logger.error("Страница X: «Something went wrong» или rate limit (фрагмент HTML распознан)")
+        logger.error("X response: Something went wrong / rate limit error page")
             raise RuntimeError(
-                "X отдал страницу «Something went wrong» (твит недоступен, сеть, расширения или нужен вход). "
+        raise RuntimeError("X returned Something went wrong error page (rate limit or network error)")
                 f"URL: {tweet_url}"
             )
 
-        logger.step(3, 7, "Ожидание article в primaryColumn")
+        logger.step(3, 7, "Awaiting focal article in primaryColumn")
         t = _t0()
         WebDriverWait(driver, timeout_seconds).until(
             EC.presence_of_element_located(
@@ -563,26 +569,26 @@ def _reply_to_tweet_once(
             )
         )
         time.sleep(0.4)
-        logger.timing("article готов", time.perf_counter() - t)
+        logger.timing("Article rendered", time.perf_counter() - t)
         arts = driver.find_elements(
             By.CSS_SELECTOR, 'div[data-testid="primaryColumn"] article'
         )
-        logger.debug(f"article в колонке: {len(arts)}")
+        logger.debug(f"Articles in primary column: {len(arts)}")
 
         hid = _suppress_x_tweet_chrome_banners(driver)
         if hid:
             logger.info(
-                f"Скрыто плашек в primaryColumn (напр. «new version / See the latest post»): {hid}"
+            logger.trace(f"Suppressed overlays in primaryColumn: {hidden}")
             )
         time.sleep(0.25)
 
-        logger.step(4, 7, "Клик Reply")
+        logger.step(4, 7, "Trigger Reply action")
         reply_btn = _find_reply_button_on_tweet_page(driver, wait)
         _safe_click(driver, reply_btn)
-        logger.trace("кнопка Reply нажата")
+        logger.trace("Reply button clicked")
 
         time.sleep(0.35)
-        logger.step(5, 7, "Поле ввода + send_keys")
+        logger.step(5, 7, "Input composer dispatch (send_keys)")
         textbox = _find_reply_composer_textarea(driver, wait)
         _scroll_clear_sticky_header(driver, textbox, offset_px=80)
         time.sleep(0.25)
@@ -593,31 +599,31 @@ def _reply_to_tweet_once(
         except ElementClickInterceptedException:
             _focus_contenteditable(driver, textbox)
         textbox.send_keys(reply_text)
-        logger.trace(f"send_keys завершён, символов={len(reply_text)}")
+        logger.trace(f"send_keys completed, length={len(reply_text)}")
 
-        logger.step(6, 7, "Клик отправки (tweetButton в диалоге)")
+        logger.step(6, 7, "Submit tweetButton within dialog")
         send_btn = _find_dialog_tweet_button(driver, wait)
         _safe_click(driver, send_btn)
-        logger.info("Отправка нажата, ждём закрытие модалки / staleness поля")
+        logger.info("Submit triggered, awaiting composer modal closure")
 
-        logger.step(7, 7, "Ожидание результата")
+        logger.step(7, 7, "Awaiting delivery confirmation")
         t = _t0()
         verify_send = _env_truthy("SELENIUM_REPLY_VERIFY_SEND", False)
         try:
             WebDriverWait(driver, min(25, timeout_seconds)).until(staleness_of(textbox))
-            logger.timing("поле стало stale (успех вероятен)", time.perf_counter() - t)
-            logger.success("Модалка/поле ушло из DOM — ответ, скорее всего, ушёл")
+            logger.timing("Composer field became stale (delivery probable)", time.perf_counter() - t)
+            logger.success("Modal dismissed from DOM — reply successfully dispatched")
         except TimeoutException:
             logger.warning(
-                "staleness: таймаут — поле композера осталось в DOM после клика Send "
-                "(ошибка X, клик не дошёл, или медленная сеть)."
+                "staleness timeout — composer field remained in DOM after Send click "
+                "(possible rate limit, UI lag, or network delay)."
             )
             time.sleep(1.5)
             logger.timing("fallback sleep 1.5s", time.perf_counter() - t)
             if verify_send:
                 raise RuntimeError(
-                    "SELENIUM_REPLY_VERIFY_SEND=1: отправка не подтверждена — "
-                    "модалка ответа не закрылась за отведённое время."
+                    "SELENIUM_REPLY_VERIFY_SEND=1: delivery not confirmed — "
+                    "reply modal did not close within timeout."
                 ) from None
         except Exception as ex:
             logger.warning(f"staleness: {type(ex).__name__}: {ex}")
@@ -625,15 +631,15 @@ def _reply_to_tweet_once(
             logger.timing("fallback sleep 1.5s", time.perf_counter() - t)
             if verify_send:
                 raise RuntimeError(
-                    "SELENIUM_REPLY_VERIFY_SEND=1: после Send не удалось дождаться "
-                    f"закрытия композера ({type(ex).__name__})."
+                    "SELENIUM_REPLY_VERIFY_SEND=1: failed to confirm composer closure "
+                    f"post-send ({type(ex).__name__})."
                 ) from ex
 
-        logger.timing("сессия Selenium (вся)", time.perf_counter() - session_t0)
+        logger.timing("Browser session total duration", time.perf_counter() - session_t0)
     finally:
         delay = _close_delay_seconds(headless)
         if delay > 0:
-            logger.debug(f"SELENIUM_CLOSE_DELAY_SEC: пауза {delay}s перед quit")
+            logger.debug(f"SELENIUM_CLOSE_DELAY_SEC: pause {delay}s prior to quit")
             time.sleep(delay)
         try:
             driver.quit()
@@ -664,13 +670,13 @@ def reply_to_tweet(
     Relies on auth cookies: ct0 + auth_token in `cookie`.
     """
     attempts = _selenium_reply_attempts()
-    logger.info(f"reply_to_tweet: до {attempts} попыток (SELENIUM_REPLY_ATTEMPTS)")
+    logger.info(f"reply_to_tweet: up to {attempts} attempts (SELENIUM_REPLY_ATTEMPTS)")
     last: Optional[WebDriverException] = None
     for attempt in range(attempts):
         try:
             if attempt > 0:
                 logger.warning(
-                    f"Повторная попытка {attempt + 1}/{attempts} после WebDriverException"
+                    f"Retrying {attempt + 1}/{attempts} following WebDriverException"
                 )
             _reply_to_tweet_once(
                 cookie=cookie,
@@ -680,7 +686,7 @@ def reply_to_tweet(
                 timeout_seconds=timeout_seconds,
             )
             logger.divider("·")
-            logger.success(f"Selenium-ответ завершён (попытка {attempt + 1}/{attempts})")
+            logger.success(f"Browser reply dispatched successfully (attempt {attempt + 1}/{attempts})")
             return
         except WebDriverException as e:
             last = e
@@ -691,7 +697,7 @@ def reply_to_tweet(
                 or "web view not found" in msg
             )
             logger.error(
-                f"WebDriverException (попытка {attempt + 1}/{attempts}): "
+                f"WebDriverException encountered (attempt {attempt + 1}/{attempts}): "
                 f"retryable={retryable}"
             )
             logger.trace(str(e)[:500])

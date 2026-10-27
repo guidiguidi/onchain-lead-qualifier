@@ -1,10 +1,10 @@
 """
-Цветные логи в терминале.
+Colored terminal logging system.
 
-TWITTER_LOG_LEVEL (по умолчанию ``max``):
-  max, trace, all, verbose — debug + trace (максимум деталей, в т.ч. Selenium).
-  normal, debug — debug без trace.
-  quiet, minimal, errors — только info и выше (без debug/trace).
+TWITTER_LOG_LEVEL (defaults to max):
+  max, trace, all, verbose — debug + trace (maximum verbosity, including Selenium).
+  normal, debug — debug without trace.
+  quiet, minimal, errors — only info and above (no debug/trace).
 """
 import os
 import sys
@@ -53,9 +53,9 @@ Rows = Union[Mapping[str, Any], Sequence[Tuple[str, Any]]]
 def _log_level_from_env() -> Tuple[bool, bool]:
     """
     TWITTER_LOG_LEVEL:
-      max | trace | all  — debug + trace (максимум)
-      normal | debug     — debug, без trace
-      quiet | minimal    — только info и выше
+      max | trace | all  — debug + trace (maximum verbosity)
+      normal | debug     — debug without trace
+      quiet | minimal    — info level and above
     """
     raw = os.getenv("TWITTER_LOG_LEVEL", "max").strip().lower()
     if raw in ("quiet", "minimal", "errors", "error"):
@@ -68,7 +68,7 @@ def _log_level_from_env() -> Tuple[bool, bool]:
 class DebugLogger:
     def __init__(self, verbose: bool = True, trace: bool = False) -> None:
         self.verbose = verbose
-        # Не называть self.trace — перекроет метод trace() и даст 'bool' object is not callable.
+        # Do not name self.trace to avoid shadowing trace() method which causes 'bool' object is not callable.
         self._trace_on = trace
         self.indent_level = 0
 

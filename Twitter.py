@@ -524,7 +524,7 @@ class Twitter:
     return None
 
   def reply_to_tweet(self, text: str, in_reply_to_tweet_id: str):
-    # Актуальный queryId для CreateTweet (март 2026).
+    # Current queryId for CreateTweet (March 2026).
     query_id = "UecQIuYzi2MCOah7-eOpcQ" 
     url = f"{self.twitter_base_api_url}/{query_id}/CreateTweet"
     

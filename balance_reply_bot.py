@@ -20,13 +20,13 @@ from reply_sender import send_reply
 def main():
     logger.section("Twitter Balance-Based Reply Bot")
 
-    # 1. Загрузка настроек
+    # 1. Load configuration
     etherscan_key = os.getenv("ETHERSCAN_API_KEY")
-    alchemy_key = os.getenv("ALCHEMY_SOLANA_KEY") # Если нет в .env, будет None
+    alchemy_key = os.getenv("ALCHEMY_SOLANA_KEY")  # None if not provided in .env
     
     try:
         cookie = load_cookie_from_accounts("accounts.txt")
-        # Берем ID поста из tweets.txt
+        # Extract target post ID from tweets.txt
         tweet_ids = load_tweet_ids("tweets.txt")
         logger.success(f"Loaded {len(tweet_ids)} target tweets from tweets.txt")
     except Exception as e:
@@ -39,7 +39,7 @@ def main():
     for tweet_id in tweet_ids:
         logger.section(f"Analyzing Tweet ID: {tweet_id}")
         
-        # 2. Собираем все ответы под постом
+        # 2. Collect replies under target post
         replies = fetch_replies_for_tweet(twitter, tweet_id)
         logger.info(f"Total replies found: {len(replies)}")
 
@@ -48,7 +48,7 @@ def main():
             reply_id = reply.get("tweet_id")
             full_text = reply.get("full_text", "")
             
-            # Извлекаем кошельки из текста ответа
+            # Extract crypto wallet addresses from reply body
             wallets = extract_wallets(full_text)
             evm_list = wallets.get("evm", [])
             sol_list = wallets.get("solana", [])
@@ -62,19 +62,19 @@ def main():
 
             found_balance_info = None
 
-            # 3. Проверяем баланс EVM
+            # 3. Query EVM wallet balances
             if evm_list and validator.etherscan:
                 logger.info(f"Checking EVM balance for: {evm_list[0]}...")
                 try:
                     res = validator.etherscan.validate_address(evm_list[0])
-                    # Извлекаем число из строки типа "1.25 ETH"
+                    # Extract numeric value from string (e.g. "1.25 ETH")
                     balance_val = float(res.balance.split()[0])
                     if balance_val > 0:
                         found_balance_info = f"{res.balance} (EVM)"
                 except Exception as e:
                     logger.error(f"EVM Check error: {e}")
 
-            # 4. Проверяем баланс Solana (если не нашли на EVM)
+            # 4. Query Solana balance if EVM query was empty
             if not found_balance_info and sol_list and validator.solscan:
                 logger.info(f"Checking Solana balance for: {sol_list[0]}...")
                 try:
@@ -85,9 +85,9 @@ def main():
                 except Exception as e:
                     logger.error(f"Solana Check error: {e}")
 
-            # 5. Если баланс есть — готовим ответ
+            # 5. Format qualified lead reply if balance exceeds threshold
             if found_balance_info:
-                # Список вариантов ответа
+                # Reply text variants
                 templates = [
                     "Nice! I see you have {bal} on your wallet. 🚀",
                     "Wow, {bal} detected. Great balance! 🔥",
@@ -96,7 +96,7 @@ def main():
                 ]
                 
                 base_text = random.choice(templates).format(bal=found_balance_info)
-                # Финальный текст с тегом пользователя
+                # Final reply payload tagged with target handle
                 final_reply = f"@{username} {base_text}"
 
                 print("-" * 30)
@@ -106,8 +106,8 @@ def main():
                 print(f"DRAFT MESSAGE: {final_reply}")
                 print("-" * 30)
 
-                # Запрашиваем подтверждение или просто паузу для логов
-                # Чтобы бот работал сам, можно закомментировать 'input'
+                # Logging pause / manual confirmation checkpoint
+                # Uncomment / comment out input prompt for full automation
                 # confirm = input("Send this reply? (y/n/skip): ")
                 # if confirm.lower() == 'y':
                 
@@ -141,7 +141,7 @@ def main():
                 except Exception as e:
                     logger.error(f"Error during reply: {e}")
 
-                # Задержка 20-40 секунд между ответами, чтобы не забанили
+                # 20-40s randomized rate-limit delay between replies to prevent spam flagging
                 wait_time = random.randint(20, 40)
                 logger.info(f"Waiting {wait_time}s before next check...")
                 time.sleep(wait_time)

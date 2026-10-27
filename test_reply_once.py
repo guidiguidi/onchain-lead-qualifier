@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 """
-Один пробный ответ на твит (Selenium). Не коммитьте куки.
+One-off test reply to tweet (Selenium). Do not commit cookies.
 
   python test_reply_once.py [tweet_id]
 
-По умолчанию: https://x.com/escitam/status/2042347633922977942
-Первая строка из accounts.txt: ct0:auth_token[:proxy]
+Default: https://x.com/escitam/status/2042347633922977942
+First line in accounts.txt: ct0:auth_token[:proxy]
 
-Переменные:
-  REPLY_TEST_TEXT — текст ответа (по умолчанию короткий тест)
-  SELENIUM_HEADLESS=1 — без окна
-  UC_CHROME_VERSION_MAIN=146 — если автоопределение версии Chrome не сработало
+Environment variables:
+  REPLY_TEST_TEXT — reply body (defaults to short test text)
+  SELENIUM_HEADLESS=1 — headless mode
+  UC_CHROME_VERSION_MAIN=146 — override if Chrome version autodetection fails
   TWITTER_LOG_LEVEL=max|normal|quiet
-  SELENIUM_REPLY_VERIFY_SEND=1 — после клика Send упасть с ошибкой, если модалка
-    не закрылась (проверка, что отправка дошла до UI)
+  SELENIUM_REPLY_VERIFY_SEND=1 — fail with error after Send click if dialog modal
+    did not close (verifies delivery in UI)
 
-Как понять, что Send сработал: в логах шаг 7 «поле стало stale»; плюс открой тред
-на X и найди свой REPLY_TEST_TEXT. При VERIFY_SEND=1 скрипт не завершится «успехом»,
-если композер остался на экране.
+Delivery verification: log step 7 indicates field became stale; check thread on X
+to find REPLY_TEST_TEXT. Under VERIFY_SEND=1 script fails if composer
+remains visible on screen.
 """
 import os
 import sys
@@ -42,14 +42,14 @@ def main() -> None:
     acc = accounts[0]
     logger.section("Test reply once", subtitle=f"tweet_id={tweet_id}")
     logger.panel(
-        "Аккаунт",
+        "Account",
         {
-            "account": "#0 из accounts.txt",
-            "proxy": "да" if acc.proxy else "нет",
+            "account": "#0 in accounts.txt",
+            "proxy": "yes" if acc.proxy else "no",
             "TWITTER_LOG_LEVEL": os.getenv("TWITTER_LOG_LEVEL", "max"),
         },
     )
-    logger.info("Запуск reply_to_tweet…")
+    logger.info("Starting reply_to_tweet...")
     selenium_reply.reply_to_tweet(
         cookie=acc.cookie,
         tweet_id=tweet_id,
@@ -57,7 +57,7 @@ def main() -> None:
         proxy=acc.proxy,
         timeout_seconds=45,
     )
-    logger.success("Скрипт завершился без исключения — проверь тред на X вручную.")
+    logger.success("Script finished without exceptions — verify thread on X manually.")
 
 
 if __name__ == "__main__":

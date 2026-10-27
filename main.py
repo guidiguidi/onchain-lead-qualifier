@@ -25,7 +25,7 @@ _REPLY_AUDIT_LOCK = Lock()
 
 
 def append_reply_audit(entry: Dict[str, Any]) -> None:
-    """Пишет копию ответа в JSONL + человекочитаемый .txt (потокобезопасно)."""
+    """Writes reply audit log to JSONL + human-readable .txt (thread-safe)."""
     if not _env_truthy("REPLY_AUDIT", True):
         return
     jsonl_path = (os.getenv("REPLY_AUDIT_LOG") or "reply_audit.jsonl").strip()
@@ -39,17 +39,23 @@ def append_reply_audit(entry: Dict[str, Any]) -> None:
     body = (
         f"\n{'=' * 60}\n"
         f"{at}\n"
-        f"Куда (ответ на твит): {target}\n"
-        f"Статус: {entry.get('status')}\n"
+    body = f"Target tweet: {target}
+"
+    body += f"Status: {entry.get('status')}
+"
     )
     if entry.get("chosen_chain") or entry.get("chosen_address") or entry.get("balance_summary"):
         body += (
-            f"Кошелёк: {entry.get('chosen_chain')} {entry.get('chosen_address')} | "
-            f"баланс: {entry.get('balance_summary')}\n"
+            f"Wallet: {entry.get('chosen_chain')} {entry.get('chosen_address')} | "
+            f"balance: {entry.get('balance_summary')}
+"
         )
-    body += f"Текст ответа:\n{entry.get('reply_text', '')}\n"
+        body += f"Reply body:
+{entry.get('reply_text', '')}
+"
     if entry.get("error"):
-        body += f"Ошибка: {entry['error']}\n"
+        body += f"Error: {entry['error']}
+"
     try:
         with _REPLY_AUDIT_LOCK:
             with open(jsonl_path, "a", encoding="utf-8") as f:
@@ -58,7 +64,7 @@ def append_reply_audit(entry: Dict[str, Any]) -> None:
                 with open(txt_path, "a", encoding="utf-8") as f:
                     f.write(body)
     except OSError as e:
-        logger.warning(f"Не удалось записать reply audit: {e}")
+        logger.warning(f"Failed to write reply audit log: {e}")
 
 
 # #region agent log
@@ -123,8 +129,8 @@ def _solana_alchemy_key() -> Optional[str]:
 
 def _solana_rpc_url() -> Optional[str]:
     """
-    Полный HTTPS JSON-RPC URL. Кавычки в .env обрезаются.
-    Для Helius: либо полный URL с ?api-key=..., либо база + SOLANA_RPC_API_KEY (добавим query).
+    Full HTTPS JSON-RPC URL. Quotes in .env are stripped.
+    For Helius: provide full URL with ?api-key=..., or base URL + SOLANA_RPC_API_KEY (appends query param).
     """
     raw = os.getenv("SOLANA_RPC_URL", "").strip().strip('"').strip("'")
     if not raw:
@@ -193,8 +199,8 @@ def send_replies_to_validated_users(
     account_proxy: Optional[str] = None,
 ):
     """
-    Проходит по списку валидированных кошельков и отправляет реплаи при подходящем балансе.
-    Порог: MIN_REPLY_BALANCE_USD в .env (оценка в USD через CoinGecko); если не задан — любой баланс > 0.
+    Iterates through qualified wallet leads and dispatches automated replies when balance threshold is met.
+    Threshold: MIN_REPLY_BALANCE_USD in .env (evaluated in USD via CoinGecko spot rates) — any balance > 0.
     """
     logger.section("Starting Auto-Reply Phase")
 
@@ -249,7 +255,7 @@ def send_replies_to_validated_users(
         chosen_chain: Optional[str] = None
         chosen_address: Optional[str] = None
 
-        # Проверяем Ethereum
+        # 1. Check Ethereum balances
         for eth in v_wallets.get("ethereum", []):
             if eth.get("exists") and eth.get("balance"):
                 try:
@@ -262,7 +268,7 @@ def send_replies_to_validated_users(
                 except (ValueError, IndexError):
                     continue
 
-        # Если не нашли в ETH, проверяем Solana
+        # 2. Check Solana balances if no ETH match
         if not found_balance_text:
             for sol in v_wallets.get("solana", []):
                 if sol.get("exists") and sol.get("balance"):
@@ -276,7 +282,7 @@ def send_replies_to_validated_users(
                     except (ValueError, IndexError):
                         continue
 
-        # Если баланс найден — шлем ответ
+        # 3. Dispatch reply if balance threshold met
         if found_balance_text:
             post_url: Optional[str] = record.get("url")
             if not post_url and username and reply_id:
@@ -289,21 +295,21 @@ def send_replies_to_validated_users(
                     latest_post = twitter.get_latest_normal_tweet(username)
                 except Exception as e:
                     logger.warning(
-                        f"Не удалось взять последний пост @{username} ({e}); "
-                        f"ответ уйдёт на реплай в треде ({wallet_reply_tweet_id})."
+                        f"Failed to fetch latest post for @{username} ({e}); "
+                        f"reply will target thread comment ({wallet_reply_tweet_id})."
                     )
                     latest_post = None
                 if latest_post and latest_post.get("tweet_id"):
                     send_reply_to_tweet_id = latest_post["tweet_id"]
                     if send_reply_to_tweet_id != wallet_reply_tweet_id:
                         logger.info(
-                            f"Ответ под последним оригинальным постом @{username} (id={send_reply_to_tweet_id}), "
-                            f"не под ретвитом/цитатой/реплаем; кошельки были в реплае id={wallet_reply_tweet_id}"
+            logger.info(f"Replying under latest organic tweet of @{username} (id={send_reply_to_tweet_id})")
+                            f"excluding retweets/quotes/replies; wallets originated in reply id={wallet_reply_tweet_id}"
                         )
                 elif send_reply_to_tweet_id == wallet_reply_tweet_id:
                     logger.info(
-                        f"@{username}: остаёмся на реплае в треде (id={wallet_reply_tweet_id}) — "
-                        f"в последних твитах профиля нет своего поста без ретвита/цитаты/ответа или ошибка API."
+                        f"@{username}: targeting thread reply (id={wallet_reply_tweet_id}) — "
+            logger.info(f"@{username}: targeting thread reply (id={wallet_reply_tweet_id}) — no standalone tweet found")
                     )
 
             if text_lines:
@@ -327,18 +333,24 @@ def send_replies_to_validated_users(
             if min_usd is not None:
                 usd_note = f" | MIN_REPLY_BALANCE_USD=${min_usd:.2f}"
             logger.info(
-                f"Подготовка ответа @{username}: цепь={chosen_chain} | адрес={chosen_address} | "
-                f"баланс={found_balance_text}{usd_note}"
+                f"Preparing reply for @{username}: chain={chosen_chain} | address={chosen_address} | "
+                f"balance={found_balance_text}{usd_note}"
             )
             send_target_url: Optional[str] = None
             if username and send_reply_to_tweet_id:
                 send_target_url = f"https://x.com/{username}/status/{send_reply_to_tweet_id}"
             logger.info(
-                f"Черновик ответа ↓\n"
-                f"  Тред (корень): {thread_root}\n"
-                f"  Куда шлём ответ: {send_target_url or send_reply_to_tweet_id}\n"
-                f"  Ссылка на реплай с кошельками: {post_url or wallet_reply_tweet_id}\n"
-                f"  Текст:\n{reply_text}"
+    draft_banner = (
+        f"Reply draft preview ↓
+"
+        f"  Thread root: {thread_root}
+"
+        f"  Target tweet: {send_target_url or send_reply_to_tweet_id}
+"
+        f"  Originating reply: {post_url or wallet_reply_tweet_id}
+"
+                f"  Text payload:
+{reply_text}"
             )
 
             try:
@@ -366,8 +378,8 @@ def send_replies_to_validated_users(
                             return True
                         if code == 226:
                             logger.error(
-                                "X отклонил create_tweet как автоматизацию (226). "
-                                "Дальнейшие реплаи с этим аккаунтом сейчас, скорее всего, тоже будут отклонены — остановка воркера."
+                                "X rejected create_tweet due to automated activity limit (226). "
+            "Subsequent automated replies from this session may be restricted by platform rate limits."
                             )
                             _log_auto_reply_recipients_summary(sent_to, sent_count)
                             return True
@@ -420,7 +432,8 @@ def send_replies_to_validated_users(
                     )
             except Exception as e:
                 err_human = format_reply_error(e)
-                logger.error(f"Не удалось отправить ответ @{username}:\n{err_human}")
+                logger.error(f"Failed to send reply to @{username}:
+{err_human}")
                 append_reply_audit(
                     {
                         "username": username,
@@ -438,7 +451,7 @@ def send_replies_to_validated_users(
                     }
                 )
 
-            # Задержка между ответами для безопасности аккаунта
+            # Rate-limit delay between replies for account safety
             wait = random.randint(25, 45)
             logger.info(f"Anti-spam delay: {wait}s...")
             time.sleep(wait)
@@ -449,11 +462,11 @@ def send_replies_to_validated_users(
 
 
 def _log_auto_reply_recipients_summary(sent_to: List[Dict[str, Any]], sent_count: int) -> None:
-    """В конце фазы ответов — краткий список, кому ушли ответы (если были)."""
+    """Summary list of recipients dispatched during reply phase."""
     if sent_count <= 0:
-        logger.info("Автоответы: никому не отправлено (0 успешных).")
+        logger.info("Automated replies: 0 dispatches sent.")
         return
-    logger.subsection(f"Кому отправлены ответы ({sent_count})")
+    logger.subsection(f"Dispatched Replies ({sent_count})")
     for i, row in enumerate(sent_to, 1):
         u = row.get("username") or "?"
         link = row.get("url") or row.get("reply_to_tweet_id")
@@ -775,15 +788,15 @@ def validate_wallets_and_save(
     if validator.solscan and not sol_available:
         detail = getattr(validator.solscan, "last_availability_error", None) or "unknown"
         hint = (
-            "http_401 = неверный/просроченный ключ или URL без ключа. "
-            "Alchemy: полный URL …/v2/<APP_KEY> или только ALCHEMY_SOLANA_KEY. "
-            "Helius: URL с ?api-key=… или SOLANA_RPC_URL + SOLANA_RPC_API_KEY. "
-            "Другие провайдеры: при необходимости SOLANA_RPC_BEARER."
+            "http_401 = invalid/expired API key or missing key parameter. "
+            "Alchemy: full URL .../v2/<APP_KEY> or ALCHEMY_SOLANA_KEY. "
+            "Helius: URL with ?api-key=... or SOLANA_RPC_URL + SOLANA_RPC_API_KEY. "
+            "Other RPC providers: configure SOLANA_RPC_BEARER if required."
         )
         if "401" not in str(detail):
             hint = (
-                "Задай SOLANA_RPC_URL (полный HTTPS) или ALCHEMY_SOLANA_KEY (app key Alchemy, не JWT Solscan). "
-                "См. .env.example."
+        "Provide SOLANA_RPC_URL (full HTTPS) or ALCHEMY_SOLANA_KEY in .env. "
+                "See .env.example."
             )
         logger.warning(
             f"Solana RPC check failed ({detail}) — skipping Solana validation. {hint}"
@@ -859,7 +872,7 @@ def validate_wallets_and_save(
 
         if evm_count + solana_count == 0:
             skipped_count += 1
-            logger.info(f"Reply {reply_idx}: нет кошельков в тексте — пропуск")
+            logger.info(f"Reply {reply_idx}: no wallet addresses found — skipping")
             continue
 
         validated_wallets: Dict[str, List[Dict[str, Any]]] = {"ethereum": [], "solana": []}
@@ -885,11 +898,11 @@ def validate_wallets_and_save(
         if not r_url and un != "?" and tid:
             r_url = f"https://x.com/{un}/status/{tid}"
         logger.info(
-            f"Reply {reply_idx}: @{un} | в тексте {evm_count} EVM + {solana_count} Solana"
+            f"Reply {reply_idx}: @{un} | detected {evm_count} EVM + {solana_count} Solana addresses"
         )
         detail_lines = [
-            f"  Ссылка на твит: {r_url or tid}",
-            "  Результаты проверки по этому реплаю:",
+            f"  Tweet link: {r_url or tid}",
+            "  Validation results for this reply:",
         ]
         for row in validated_wallets["ethereum"]:
             detail_lines.append(
@@ -902,7 +915,7 @@ def validate_wallets_and_save(
                 f"balance={row.get('balance')!s} | error={row.get('error')!s}"
             )
         if not validated_wallets["ethereum"] and not validated_wallets["solana"]:
-            detail_lines.append("    (нет строк валидации — API цепи недоступны или адреса не сопоставлены)")
+            detail_lines.append("    (no validation lines — chain APIs unreachable or invalid address)")
         logger.info("\n".join(detail_lines))
 
     logger.pop_indent()
@@ -959,7 +972,7 @@ def scratch_json_paths(tweet_id: str) -> Tuple[str, str]:
 
 def main() -> None:
     logger.panel(
-        "Логи",
+        "Logging",
         {
             "TWITTER_LOG_LEVEL": os.getenv("TWITTER_LOG_LEVEL", "max"),
             "verbose": logger.verbose_enabled,
